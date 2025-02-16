@@ -16,6 +16,59 @@ limitations under the License.
 
 local lib = {}
 
+-- Almost fully taken from XTERM defaults. the only thing not the real default is #0000ff not being #5c5cff
+local colorMap16 = {
+   "#000000",
+   "#cd0000",
+   "#00cd00",
+   "#cdcd00",
+   "#0000ee",
+   "#cd00cd",
+   "#00cdcd",
+   "#e5e5e5",
+   "#7f7f7f",
+   "#ff0000",
+   "#00ff00",
+   "#ffff00",
+   "#0000ff",
+   "#ff00ff",
+   "#00ffff",
+   "#ffffff"
+}
+
+-- 256 color to rgb hex
+-- Ported from https://github.com/joejulian/xterm/blob/master/256colres.pl#L64-L76
+local function colorToHex(int)
+   local r, g, b = 0, 0, 0
+   if int >= 0 and int <= 15 then -- System colors
+      return colorMap16[int + 1]
+   elseif int >= 16 and int <= 231 then -- 6x6x6 RGB cube
+      r = (math.floor((int - 16) / 36) * 40 + 55)
+      g = (math.floor((int - 16) % 36 / 6) * 40 + 55)
+      b = ((int - 16) % 6 * 40 + 55)
+   elseif int >= 232 and int <= 255 then -- Grayscale ramp
+      local gray = (int - 232) * 10 + 8
+      r = gray
+      g = gray
+      b = gray
+   else
+      return "#000000"
+   end
+
+   r = math.min(255, math.max(0, math.floor(r)))  -- Clamp to 0-255
+   g = math.min(255, math.max(0, math.floor(g)))
+   b = math.min(255, math.max(0, math.floor(b)))
+
+   local function toHex(c)
+      return string.format("%02X", c)
+   end
+
+   local hex_color = "#" .. toHex(r) .. toHex(g) .. toHex(b)
+   return hex_color
+end
+
+print(colorToHex(25))
+
 local function copy(tbl)
    local new = {}
 
@@ -208,11 +261,7 @@ function lib.toMinecraft(str)
             newCompose.color = "#" .. hex
             iter = iter + 5
          elseif int then
-            if tonumber(int) <= 7 then
-               newCompose.color = eightColorMap[tonumber(int) + 1]
-            else
-               error("256 color not supported for Minecraft")
-            end
+            newCompose.color = colorToHex(tonumber(int))
             iter = iter + (#int - 1)
          end
          color = false
