@@ -151,7 +151,7 @@ function lib.toAnsi(str)
                end
             end
             if layers[layer - 1].color[1] then
-               final = final .. layers[layer].color[2]
+               final = final .. layers[layer - 1].color[2]
             end
             formatLayers = copy(layers[layer - 1])
             layers[layer] = nil
@@ -256,6 +256,7 @@ function lib.toMinecraft(str)
             layer = layer - 1
             final[#final + 1] = compose
             compose = copy(layers[layer - 1])
+            compose.text = ""
             layers[layer] = nil
 
             goto continue
