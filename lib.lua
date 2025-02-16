@@ -1,3 +1,19 @@
+--[[
+Copyright 2025 Figura Goofballs
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+   http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+--]]
+
 local lib = {}
 
 local function copy(tbl)
@@ -13,6 +29,8 @@ local function copy(tbl)
 
    return new
 end
+
+local eightColorMap = {"black", "red", "green", "yellow", "blue", "light_purple", "aqua", "white"}
 
 local ansi24BitColor = "\x1b[38;2;%i;%i;%im"
 local ansi256Color = "\x1b[38;5;%im"
@@ -149,6 +167,110 @@ function lib.toAnsi(str)
 
       ::continue::
    end
+
+   return final
+end
+
+function lib.toMinecraft(str)
+   local layers = {
+      {
+         bold = false;
+         italic = false;
+         underline = false;
+         strikethrough = false;
+         color = "white";
+      }
+   }
+   local compose = {
+      bold = false;
+      italic = false;
+      underline = false;
+      strikethrough = false;
+      color = "white",
+      text = ""
+   }
+   local newCompose = copy(compose)
+   local final = {}
+
+   local iter = 0
+   local checking = false
+   local color = false
+   local layer = 2
+   while iter <= #str do
+      iter = iter + 1
+      local char = str:sub(iter, iter)
+
+      if color then
+         local hex = str:sub(iter, iter + 6):match("%x%x%x%x%x%x")
+         local int = str:sub(iter, iter + 3):match("%d%d?%d?")
+
+         if hex then
+            newCompose.color = "#" .. hex
+            iter = iter + 5
+         elseif int then
+            if tonumber(int) <= 7 then
+               newCompose.color = eightColorMap[tonumber(int) + 1]
+            else
+               error("256 color not supported for Minecraft")
+            end
+            iter = iter + (#int - 1)
+         end
+         color = false
+      elseif checking then
+         if char == "[" then
+            layers[layer] = {
+               bold = newCompose.bold;
+               italic = newCompose.italic;
+               underline = newCompose.underline;
+               strikethrough = newCompose.strikethrough;
+               color = newCompose.color;
+               text = ""
+            }
+            final[#final + 1] = compose
+            compose = layers[layer]
+
+            layer = layer + 1
+            checking = false
+            goto continue
+         elseif char == "]" then
+            compose.text = compose.text .. "]"
+            checking = false
+            goto continue
+         elseif char == "$" then
+            compose.text = compose.text .. "$"
+            checking = false
+            goto continue
+         end
+
+         if ansi[char] then
+            newCompose[ansi[char].variable] = true
+         elseif char == "c" then
+            color = true
+         end
+      else
+         if char == "]" then
+            if layer == 1 then
+               compose.text = compose.text .. "]"
+            end
+
+            layer = layer - 1
+            final[#final + 1] = compose
+            compose = copy(layers[layer - 1])
+            layers[layer] = nil
+
+            goto continue
+         elseif char == "$" then
+            checking = true
+            goto continue
+         end
+
+         compose.text = (compose.text or "") .. char
+      end
+
+      ::continue::
+   end
+
+   final[#final + 1] = compose
 
    return final
 end
