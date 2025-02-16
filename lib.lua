@@ -107,6 +107,10 @@ function lib.toAnsi(str)
             final = final .. "]"
             checking = false
             goto continue
+         elseif char == "$" then
+            final = final .. "$"
+            checking = false
+            goto continue
          end
 
          if ansi[char] then
