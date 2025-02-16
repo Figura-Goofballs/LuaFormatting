@@ -1,4 +1,4 @@
-# LuaAnsi
+# LuaFormatting
 ## Syntax
 Here's an example:
 ```
