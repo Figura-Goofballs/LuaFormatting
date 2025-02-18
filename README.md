@@ -20,4 +20,8 @@ Example:
 ```
 This is $cffaaee[pink (24-bit)], this is $c3[yellow (8 color)], and this is $c25[a shade of blue (256 color)]
 ```
+## Methods
+toAnsi(str) -- convert to ansi escapes
+toMinecraft(str) -- convert to a minecraft raw text component (converting to json not done by this library, this just returns a table)
+toHTML(str, five) -- convert to html. if five is true, it doesn't use elements removed in html5, so the output will be larger.
 

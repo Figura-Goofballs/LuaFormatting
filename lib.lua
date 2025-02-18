@@ -67,8 +67,6 @@ local function colorToHex(int)
    return hex_color
 end
 
-print(colorToHex(25))
-
 local function copy(tbl)
    local new = {}
 
@@ -323,6 +321,61 @@ function lib.toMinecraft(str)
    final[#final + 1] = compose
 
    return final
+end
+
+local htmlEntities = {
+   ["&"] = "&amp;";
+   ["<"] = "&lt;";
+   [">"] = "&gt;";
+}
+function lib.toHTML(str, five)
+   if five ~= false then
+      five = true
+   end
+
+   local finalStr = "<p>"
+   for _, v in pairs(lib.toMinecraft(str)) do
+      local text = v.text:gsub(".", htmlEntities)
+
+      finalStr = finalStr ..
+      (v.bold and "<b>" or "") ..
+      (v.italic and "<i>" or "") ..
+      (v.strikethrough and "<s>" or "")
+
+      if five then
+         finalStr = finalStr .. (v.underline and '<span style="text-decoration: underline">' or "")
+      else
+         finalStr = finalStr .. (v.underline and "<u>" or "")
+      end
+
+      if five then
+         finalStr = finalStr .. '<span style="color: ' .. v.color .. '">'
+      else
+         finalStr = finalStr .. '<font color="' .. v.color .. '">'
+      end
+
+      finalStr = finalStr .. text
+
+      if five then
+         finalStr = finalStr .. '</span>'
+      else
+         finalStr = finalStr .. '</font>'
+      end
+
+      if five then
+         finalStr = finalStr .. (v.underline and '</span>' or "")
+      else
+         finalStr = finalStr .. (v.underline and "</u>" or "")
+      end
+
+      finalStr = finalStr ..
+      (v.strikethrough and "</s>" or "") ..
+      (v.italic and "</i>" or "") ..
+      (v.bold and "</b>" or "")
+   end
+   finalStr = finalStr .. "</p>"
+
+   return finalStr
 end
 
 return lib
