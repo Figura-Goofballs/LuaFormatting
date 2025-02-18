@@ -107,6 +107,7 @@ local ansi = {
       unescape = "\x1b[29m";
    }
 }
+local ansiKeys = {"b", "i", "u", "s"}
 
 function lib.toAnsi(str)
    local layers = {
@@ -141,9 +142,9 @@ function lib.toAnsi(str)
 
          if hex then
             local rgb = tonumber("0x" .. hex)
-            local r = bit32.rshift(bit32.band(rgb, 0xff0000), 16)
-            local g = bit32.rshift(bit32.band(rgb, 0xff00), 8)
-            local b = bit32.band(rgb, 0xff)
+            local r = math.floor(rgb / (256 * 256)) % 256
+            local g = math.floor(rgb / 256) % 256
+            local b = rgb % 256
 
             final = final .. ansi24BitColor:format(r, g, b)
             formatLayers.color = {true, ansi24BitColor:format(r, g, b)}
@@ -196,7 +197,8 @@ function lib.toAnsi(str)
 
             layer = layer - 1
             final = final .. "\x1b[0m"
-            for _, v in pairs(ansi) do
+            for _, k in pairs(ansiKeys) do
+               local v = ansi[k]
                if layers[layer - 1][v.variable] then
                   final = final .. v.escape
                end
