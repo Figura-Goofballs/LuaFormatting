@@ -1,47 +1,45 @@
---[[
-Copyright 2025 Figura Goofballs
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-   http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
---]]
-
+---@class LuaFormatting
 local lib = {}
 
--- Almost fully taken from XTERM defaults. the only thing not the real default is #0000ff not being #5c5cff
-local colorMap16 = {
-   "#000000",
-   "#cd0000",
-   "#00cd00",
-   "#cdcd00",
-   "#0000ee",
-   "#cd00cd",
-   "#00cdcd",
-   "#e5e5e5",
-   "#7f7f7f",
-   "#ff0000",
-   "#00ff00",
-   "#ffff00",
-   "#0000ff",
-   "#ff00ff",
-   "#00ffff",
-   "#ffffff"
+---@alias LuaFormatting.Color {bits: 8, color: integer, default: boolean?}|{bits: 24, color: string, default: boolean?}
+---@alias LuaFormatting.Style {bold: boolean, italic: boolean, underline: boolean, strikethrough: boolean, fgColor: LuaFormatting.Color?, bgColor: LuaFormatting.Color?}
+
+---Map 16-color to 24-bit color.
+---
+---This uses (almost) the xterm defaults.
+lib.sixteenColorMap = {
+   "#000000";
+   "#cd0000";
+   "#00cd00";
+   "#cdcd00";
+   "#0000ee";
+   "#cd00cd";
+   "#00cdcd";
+   "#e5e5e5";
+   "#7f7f7f";
+   "#ff0000";
+   "#00ff00";
+   "#ffff00";
+   "#0000ff";
+   "#ff00ff";
+   "#00ffff";
+   "#ffffff";
 }
 
--- 256 color to rgb hex
--- Ported from https://github.com/joejulian/xterm/blob/master/256colres.pl#L64-L76
-local function colorToHex(int)
+local function rgbToHex(r, g, b)
+   local format = "%02x"
+   return "#" .. format:format(r) .. format:format(g) .. format:format(b)
+end
+
+---Convert 256-color to 24-bit color.
+---
+---Made using xterm's source code as a reference.
+---@param int integer
+---@return LuaFormatting.Color
+function lib.eightBitTo24BitColor(int)
    local r, g, b = 0, 0, 0
    if int >= 0 and int <= 15 then -- System colors
-      return colorMap16[int + 1]
+      return {bits = 24, color = lib.sixteenColorMap[int + 1]}
    elseif int >= 16 and int <= 231 then -- 6x6x6 RGB cube
       r = (math.floor((int - 16) / 36) * 40 + 55)
       g = (math.floor((int - 16) % 36 / 6) * 40 + 55)
@@ -52,332 +50,309 @@ local function colorToHex(int)
       g = gray
       b = gray
    else
-      return "#000000"
+      return {bits = 24, color = "#000000"}
    end
 
    r = math.min(255, math.max(0, math.floor(r)))  -- Clamp to 0-255
    g = math.min(255, math.max(0, math.floor(g)))
    b = math.min(255, math.max(0, math.floor(b)))
 
-   local function toHex(c)
-      return string.format("%02X", c)
-   end
-
-   local hex_color = "#" .. toHex(r) .. toHex(g) .. toHex(b)
-   return hex_color
+   return {bits = 24, color = rgbToHex(r, g, b)}
 end
 
-local function copy(tbl)
-   local new = {}
-
-   for key, value in pairs(tbl) do
-      if type(value) == "table" then
-         new[key] = copy(value)
-      else
-         new[key] = value
-      end
-   end
-
-   return new
-end
-
-local eightColorMap = {"black", "red", "green", "yellow", "blue", "light_purple", "aqua", "white"}
-
-local ansi24BitColor = "\x1b[38;2;%i;%i;%im"
-local ansi256Color = "\x1b[38;5;%im"
-local ansi = {
-   b = {
-      variable = "bold";
-      escape = "\x1b[1m";
-      unescape = "\x1b[22m";
-   },
-   i = {
-      variable = "italic";
-      escape = "\x1b[3m";
-      unescape = "\x1b[23m";
-   },
-   u = {
-      variable = "underline";
-      escape = "\x1b[4m";
-      unescape = "\x1b[24m";
-   },
-   s = {
-      variable = "strikethrough";
-      escape = "\x1b[9m";
-      unescape = "\x1b[29m";
-   }
+local charVars = {
+   b = "bold",
+   i = "italic",
+   u = "underline",
+   s = "strikethrough"
 }
-local ansiKeys = {"b", "i", "u", "s"}
 
-function lib.toAnsi(str)
-   local layers = {
-      {
-         bold = false;
-         italic = false;
-         underline = false;
-         strikethrough = false;
-         color = {false, ""};
-      }
-   }
-   local formatLayers = {
-      bold = false;
-      italic = false;
-      underline = false;
-      strikethrough = false;
-      color = {false, ""}
-   }
+---Converts to any format using a function.
+---@param str any
+---@param func fun(oldStyle: LuaFormatting.Style?, newStyle: LuaFormatting.Style, text: string, ...): string
+---@return unknown
+function lib.convertUsingFormatter(str, func, ...)
    local final = ""
 
-   local iter = 0
-   local checking = false
-   local color = false
-   local layer = 2
-   while iter <= #str do
-      iter = iter + 1
-      local char = str:sub(iter, iter)
-
-      if color then
-         local hex = str:sub(iter, iter + 6):match("%x%x%x%x%x%x")
-         local int = str:sub(iter, iter + 3):match("%d%d?%d?")
-
-         if hex then
-            local rgb = tonumber("0x" .. hex)
-            local r = math.floor(rgb / (256 * 256)) % 256
-            local g = math.floor(rgb / 256) % 256
-            local b = rgb % 256
-
-            final = final .. ansi24BitColor:format(r, g, b)
-            formatLayers.color = {true, ansi24BitColor:format(r, g, b)}
-            iter = iter + 5
-         elseif int then
-            if tonumber(int) <= 7 then
-               final = final .. "\x1b[" .. (int + 30) .. "m"
-               formatLayers.color = {true, "\x1b[" .. (int + 30) .. "m"}
-            else
-               final = final .. ansi256Color:format(int)
-               formatLayers.color = {true, ansi256Color:format(int)}
-            end
-            iter = iter + (#int - 1)
-         end
-         color = false
-      elseif checking then
-         if char == "[" then
-            layers[layer] = {
-               bold = formatLayers.bold;
-               italic = formatLayers.italic;
-               underline = formatLayers.underline;
-               strikethrough = formatLayers.strikethrough;
-               color = formatLayers.color;
-            }
-
-            layer = layer + 1
-            checking = false
-            goto continue
-         elseif char == "]" then
-            final = final .. "]"
-            checking = false
-            goto continue
-         elseif char == "$" then
-            final = final .. "$"
-            checking = false
-            goto continue
-         end
-
-         if ansi[char] then
-            final = final .. ansi[char].escape
-            formatLayers[ansi[char].variable] = true
-         elseif char == "c" then
-            color = true
-         end
-      else
-         if char == "]" then
-            if layer == 1 then
-               final = final .. "]"
-            end
-
-            layer = layer - 1
-            final = final .. "\x1b[0m"
-            for _, k in pairs(ansiKeys) do
-               local v = ansi[k]
-               if layers[layer - 1][v.variable] then
-                  final = final .. v.escape
-               end
-            end
-            if layers[layer - 1].color[1] then
-               final = final .. layers[layer - 1].color[2]
-            end
-            formatLayers = copy(layers[layer - 1])
-            layers[layer] = nil
-
-            goto continue
-         elseif char == "$" then
-            checking = true
-            goto continue
-         end
-
-         final = final .. char
-      end
-
-      ::continue::
-   end
-
-   return final
-end
-
-function lib.toMinecraft(str)
-   local layers = {
+   local styles = {
       {
-         bold = false;
-         italic = false;
-         underline = false;
-         strikethrough = false;
-         color = "white";
+         text = "",
+         style = {
+            bold = false,
+            italic = false,
+            underline = false,
+            strikethrough = false,
+            fgColor = {bits = 8, color = 7, default = true},
+            bgColor = {bits = 8, color = 0, default = true}
+         }
       }
    }
-   local compose = {
-      bold = false;
-      italic = false;
-      underline = false;
-      strikethrough = false;
-      color = "white",
-      text = ""
+   local layers = {
+      {
+         bold = false,
+         italic = false,
+         underline = false,
+         strikethrough = false,
+         fgColor = {bits = 8, color = 7, default = true},
+         bgColor = {bits = 8, color = 0, default = true}
+      }
    }
-   local newCompose = copy(compose)
-   local final = {}
 
-   local iter = 0
    local checking = false
+   ---@type boolean|string
    local color = false
-   local layer = 2
-   while iter <= #str do
-      iter = iter + 1
-      local char = str:sub(iter, iter)
+   local newStyle = {
+      bold = false,
+      italic = false,
+      underline = false,
+      strikethrough = false,
+      fgColor = {bits = 8, color = 7, default = true},
+      bgColor = {bits = 8, color = 0, default = true},
+   }
+   local iter = 0
+   for char in str:gmatch("[\0-\x7F\xC2-\xF4][\x80-\xBF]*") do
+      iter = iter + #char
 
       if color then
-         local hex = str:sub(iter, iter + 6):match("%x%x%x%x%x%x")
-         local int = str:sub(iter, iter + 3):match("%d%d?%d?")
+         local subbed = str:sub(iter, iter + 7)
+         local hex = subbed:match("^%(?#?%x%x%x%x%x%x%)?")
+         local int = subbed:match("^%(?%d%d?%d?%)?")
 
          if hex then
-            newCompose.color = "#" .. hex
-            iter = iter + 5
+            newStyle[color] = {bits = 24, color = "#" .. hex:gsub("[%(%)#]", "")}
          elseif int then
-            newCompose.color = colorToHex(tonumber(int))
-            iter = iter + (#int - 1)
+            ---@diagnostic disable-next-line
+            newStyle[color] = {bits = 8, color = tonumber(int:gsub("[%(%)]", ""), nil)}
          end
          color = false
       elseif checking then
-         if char == "[" then
-            layers[layer] = {
-               bold = newCompose.bold;
-               italic = newCompose.italic;
-               underline = newCompose.underline;
-               strikethrough = newCompose.strikethrough;
-               color = newCompose.color;
-               text = ""
+         if char == "$" or char == "]" then
+            styles[#styles].text = styles[#styles].text .. char
+         elseif char == "[" then
+            layers[#layers + 1] = newStyle
+            styles[#styles + 1] = {
+               text = "",
+               style = newStyle
             }
-            final[#final + 1] = compose
-            compose = layers[layer]
-
-            layer = layer + 1
+            newStyle = {
+               bold = styles[#styles].style.bold,
+               italic = styles[#styles].style.italic,
+               underline = styles[#styles].style.underline,
+               strikethrough = styles[#styles].style.strikethrough,
+               fgColor = styles[#styles].style.fgColor,
+               bgColor = styles[#styles].style.bgColor
+            }
             checking = false
-            goto continue
-         elseif char == "]" then
-            compose.text = compose.text .. "]"
-            checking = false
-            goto continue
-         elseif char == "$" then
-            compose.text = compose.text .. "$"
-            checking = false
-            goto continue
          end
 
-         if ansi[char] then
-            newCompose[ansi[char].variable] = true
+         local var = charVars[char]
+         if var then
+            newStyle[var] = true
          elseif char == "c" then
-            color = true
+            color = "fgColor"
+         elseif char == "C" then
+            color = "bgColor"
          end
+      elseif char == "$" then
+         checking = true
+      elseif char == "]" then
+         newStyle = {}
+         layers[#layers] = nil
+         styles[#styles + 1] = {
+            style = layers[#layers],
+            text = ""
+         }
+         newStyle = {
+            bold = layers[#layers].bold,
+            italic = layers[#layers].italic,
+            underline = layers[#layers].underline,
+            strikethrough = layers[#layers].strikethrough,
+            fgColor = layers[#layers].fgColor,
+            bgColor = layers[#layers].bgColor
+         }
       else
-         if char == "]" then
-            if layer == 1 then
-               compose.text = compose.text .. "]"
-            end
+         styles[#styles].text = styles[#styles].text .. char
+      end
+   end
 
-            layer = layer - 1
-            final[#final + 1] = compose
-            compose = copy(layers[layer - 1])
-            compose.text = ""
-            layers[layer] = nil
+   for k, v in ipairs(styles) do
+      final = final .. func((styles[k - 1] or {}).style, v.style, v.text, ...)
+   end
 
-            goto continue
-         elseif char == "$" then
-            checking = true
-            goto continue
-         end
+   return final
+end
 
-         compose.text = (compose.text or "") .. char
+local keys = {"bold", "italic", "underline", "strikethrough", "fgColor", "bgColor"}
+local function toAnsi(oldStyle, newStyle, text)
+   local styleText = ""
+
+   oldStyle = oldStyle or {
+      bold = false,
+      italic = false,
+      strikethrough = false,
+      underline = false
+   }
+   newStyle = newStyle or {
+      bold = false,
+      italic = false,
+      strikethrough = false,
+      underline = false
+   }
+
+   local diff = {}
+
+   for key, value in pairs(newStyle) do
+      if oldStyle[key] == value then goto continue end
+
+      diff[key] = value
+
+      if value == nil then
+         diff[key] = false
       end
 
       ::continue::
    end
 
-   final[#final + 1] = compose
+   for _, key in ipairs(keys) do
+      local value = diff[key]
+      if value == nil then goto continue end
 
-   return final
+      if key == "bold" then
+         if value then
+            styleText = styleText .. "\x1b[1m"
+         else
+            styleText = styleText .. "\x1b[22m"
+         end
+      elseif key == "italic" then
+         if value then
+            styleText = styleText .. "\x1b[3m"
+         else
+            styleText = styleText .. "\x1b[23m"
+         end
+      elseif key == "underline" then
+         if value then
+            styleText = styleText .. "\x1b[4m"
+         else
+            styleText = styleText .. "\x1b[24m"
+         end
+      elseif key == "strikethrough" then
+         if value then
+            styleText = styleText .. "\x1b[9m"
+         else
+            styleText = styleText .. "\x1b[29m"
+         end
+      elseif key == "fgColor" then
+         styleText = styleText .. "\x1b["
+         local bits = value.bits
+
+         if bits == 8 then
+            styleText = styleText .. "38;5;" .. value.color .. "m"
+         elseif bits == 24 then
+            local r, g, b = value.color:match("#(%x%x)(%x%x)(%x%x)")
+
+            r = tonumber("0x" .. r)
+            g = tonumber("0x" .. g)
+            b = tonumber("0x" .. b)
+
+            styleText = styleText .. "38;2;" .. r .. ";" .. g .. ";" .. b .. "m"
+         end
+      elseif key == "bgColor" then
+         styleText = styleText .. "\x1b["
+         local bits = value.bits
+
+         if bits == 8 then
+            styleText = styleText .. "48;5;" .. value.color .. "m"
+         elseif bits == 24 then
+            local r, g, b = value.color:match("#(%x%x)(%x%x)(%x%x)")
+
+            r = tonumber("0x" .. r)
+            g = tonumber("0x" .. g)
+            b = tonumber("0x" .. b)
+
+            styleText = styleText .. "48;2;" .. r .. ";" .. g .. ";" .. b .. "m"
+         end
+      end
+
+      ::continue::
+   end
+
+
+   return styleText .. text
 end
 
-local htmlEntities = {
-   ["&"] = "&amp;";
-   ["<"] = "&lt;";
-   [">"] = "&gt;";
-}
-function lib.toHTML(str, five)
-   if five ~= false then
-      five = true
+function lib.toAnsi(str)
+   return lib.convertUsingFormatter(str, toAnsi)
+end
+
+local function toHTML(_, style, str, five)
+   local finalStr = ""
+
+   if not style.fgColor then return str end
+
+   local color = (style.fgColor.default and "#000000") or
+   (style.fgColor.bits == 24 and style.fgColor.color) or
+   (style.fgColor.bits == 8 and lib.eightBitTo24BitColor(style.fgColor.color).color)
+
+   local bgColor = (style.bgColor.default and "") or
+   (style.bgColor.bits == 24 and style.bgColor.color) or
+   (style.bgColor.bits == 8 and lib.eightBitTo24BitColor(style.bgColor.color).color)
+
+   five = five and true
+   local text = str:gsub(".", {
+      ["&"] = "&amp;";
+      ["<"] = "&lt;";
+      [">"] = "&gt;";
+   })
+
+   finalStr = finalStr ..
+   (style.bold and "<b>" or "") ..
+   (style.italic and "<i>" or "") ..
+   (style.strikethrough and "<s>" or "")
+
+   if five then
+      finalStr = finalStr .. (style.underline and '<span style="text-decoration: underline">' or "")
+   else
+      finalStr = finalStr .. (style.underline and "<u>" or "")
    end
 
-   local finalStr = "<p>"
-   for _, v in pairs(lib.toMinecraft(str)) do
-      local text = v.text:gsub(".", htmlEntities)
-
-      finalStr = finalStr ..
-      (v.bold and "<b>" or "") ..
-      (v.italic and "<i>" or "") ..
-      (v.strikethrough and "<s>" or "")
-
-      if five then
-         finalStr = finalStr .. (v.underline and '<span style="text-decoration: underline">' or "")
-      else
-         finalStr = finalStr .. (v.underline and "<u>" or "")
-      end
-
-      if five then
-         finalStr = finalStr .. '<span style="color: ' .. v.color .. '">'
-      else
-         finalStr = finalStr .. '<font color="' .. v.color .. '">'
-      end
-
-      finalStr = finalStr .. text
-
-      if five then
-         finalStr = finalStr .. '</span>'
-      else
-         finalStr = finalStr .. '</font>'
-      end
-
-      if five then
-         finalStr = finalStr .. (v.underline and '</span>' or "")
-      else
-         finalStr = finalStr .. (v.underline and "</u>" or "")
-      end
-
-      finalStr = finalStr ..
-      (v.strikethrough and "</s>" or "") ..
-      (v.italic and "</i>" or "") ..
-      (v.bold and "</b>" or "")
+   if five and color then
+      finalStr = finalStr .. '<span style="color: ' .. color .. '">'
+   elseif color then
+      finalStr = finalStr .. '<font color="' .. color .. '">'
    end
-   finalStr = finalStr .. "</p>"
+
+   if bgColor ~= "" then
+      finalStr = finalStr .. '<span style="background: ' .. bgColor .. '">'
+   end
+
+   finalStr = finalStr .. text
+
+   if bgColor ~= "" then
+      finalStr = finalStr .. '</span>'
+   end
+
+   if five and color then
+      finalStr = finalStr .. '</span>'
+   elseif color then
+      finalStr = finalStr .. '</font>'
+   end
+
+   if five then
+      finalStr = finalStr .. (style.underline and '</span>' or "")
+   else
+      finalStr = finalStr .. (style.underline and "</u>" or "")
+   end
+
+   finalStr = finalStr ..
+   (style.strikethrough and "</s>" or "") ..
+   (style.italic and "</i>" or "") ..
+   (style.bold and "</b>" or "")
 
    return finalStr
+end
+
+function lib.toHTML(str, five)
+   return "<p>" .. lib.convertUsingFormatter(str, toHTML, five) .. "</p>"
 end
 
 return lib
